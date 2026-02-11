@@ -67,7 +67,7 @@ ${checklistContext}
 CURRENT STEP (Step ${currentStep.step_number}): ${currentStep.title}
 ${currentStep.description}
 
-Help the student with this specific step. Be concise, practical, and encouraging. Give actionable advice specific to their assignment. If they ask about other steps, you can help but gently guide them back to the current step.`;
+Keep your responses SHORT — 2-4 sentences max unless the student explicitly asks for more detail. Be direct and practical. No filler, no preamble, no repeating the question back. Just give the answer. Use bullet points for lists. If they ask about other steps, briefly help but guide them back to the current step.`;
 
     // Build message history for Claude
     const claudeMessages = [
