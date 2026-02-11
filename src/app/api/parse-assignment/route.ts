@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { rateLimit } from "@/lib/rate-limit";
 
 const anthropic = new Anthropic();
 
@@ -14,6 +15,20 @@ export async function POST(request: Request) {
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Rate limit: 5 uploads per 10 minutes per user
+    const { allowed, retryAfterMs } = rateLimit(
+      `parse:${user.id}`,
+      5,
+      10 * 60 * 1000
+    );
+    if (!allowed) {
+      const minutes = Math.ceil(retryAfterMs / 60000);
+      return NextResponse.json(
+        { error: `Too many uploads. Try again in ${minutes} minute${minutes > 1 ? "s" : ""}.` },
+        { status: 429 }
+      );
     }
 
     const formData = await request.formData();
@@ -32,7 +47,7 @@ export async function POST(request: Request) {
 
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
+      max_tokens: 2048,
       messages: [
         {
           role: "user",
@@ -47,37 +62,12 @@ export async function POST(request: Request) {
             },
             {
               type: "text",
-              text: `You are an expert academic advisor. First, determine if this PDF is a valid school or university assignment. Then, if valid, create a step-by-step checklist for completing it.
+              text: `You are a study planner tool. Your job is to break down assignments into an organized task list — like a to-do list. You do NOT solve, write, or complete any part of the assignment. You only help students plan their workflow.
 
-A valid assignment is a document that asks a student to complete academic work — essays, problem sets, lab reports, research papers, projects, presentations, reading responses, etc. Invalid documents include: receipts, invoices, resumes, random articles, blank pages, memos, personal documents, or anything that is clearly not an assignment given to a student.
+If this document is NOT a school/university assignment, respond with JSON: {"valid":false,"reason":"..."}
+If it IS an assignment, respond with JSON: {"valid":true,"title":"...","steps":[{"title":"...","description":"..."}]}
 
-Return your response as JSON with this exact structure:
-
-If the PDF is NOT a valid assignment:
-{
-  "valid": false,
-  "reason": "Brief explanation of why this is not a valid assignment"
-}
-
-If the PDF IS a valid assignment:
-{
-  "valid": true,
-  "title": "A short descriptive title for the assignment",
-  "steps": [
-    {
-      "title": "Short step title",
-      "description": "1-2 sentence explanation of what to do for this step"
-    }
-  ]
-}
-
-Guidelines for steps (only if valid):
-- Create 5-15 ordered, actionable steps
-- Order them logically (research → outline → draft → revise, etc.)
-- Each step should be concrete and specific to this assignment
-- Keep titles short (under 10 words)
-- Keep descriptions to 1-2 sentences max
-- Return ONLY valid JSON, no other text`,
+Steps should be planning/organizational tasks (e.g. "Review lecture notes on X", "Outline your approach", "Write first draft", "Test your code"), NOT answers or solutions. 5-15 steps, logical order, titles <10 words, descriptions 1-2 sentences. JSON only, no markdown fences.`,
             },
           ],
         },

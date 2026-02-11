@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ChatMessage } from "@/lib/types";
+import { rateLimit } from "@/lib/rate-limit";
 
 const anthropic = new Anthropic();
 
@@ -14,6 +15,20 @@ export async function POST(request: Request) {
 
     if (!user) {
       return new Response("Unauthorized", { status: 401 });
+    }
+
+    // Rate limit: 20 messages per 5 minutes per user
+    const { allowed, retryAfterMs } = rateLimit(
+      `chat:${user.id}`,
+      20,
+      5 * 60 * 1000
+    );
+    if (!allowed) {
+      const seconds = Math.ceil(retryAfterMs / 1000);
+      return new Response(
+        JSON.stringify({ error: `Slow down. Try again in ${seconds}s.` }),
+        { status: 429, headers: { "Content-Type": "application/json" } }
+      );
     }
 
     const { assignmentId, stepId, message, history } = (await request.json()) as {
@@ -69,9 +84,10 @@ ${currentStep.description}
 
 Keep your responses SHORT — 2-4 sentences max unless the student explicitly asks for more detail. Be direct and practical. No filler, no preamble, no repeating the question back. Just give the answer. Use bullet points for lists. If they ask about other steps, briefly help but guide them back to the current step.`;
 
-    // Build message history for Claude
+    // Build message history for Claude (keep last 10 messages to limit tokens)
+    const recentHistory = history.slice(-10);
     const claudeMessages = [
-      ...history.map((msg: ChatMessage) => ({
+      ...recentHistory.map((msg: ChatMessage) => ({
         role: msg.role as "user" | "assistant",
         content: msg.content,
       })),
@@ -81,7 +97,7 @@ Keep your responses SHORT — 2-4 sentences max unless the student explicitly as
     // Stream the response
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
+      max_tokens: 1024,
       system: systemPrompt,
       messages: claudeMessages,
     });

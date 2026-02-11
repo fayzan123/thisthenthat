@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
-import { X, Check, Send } from "lucide-react";
+import { X, Check, Send, MessageCircle, Sparkles } from "lucide-react";
 import type { Assignment, ChecklistStep, ChatMessage } from "@/lib/types";
 
 interface StepChatPanelProps {
@@ -20,7 +18,6 @@ interface StepChatPanelProps {
 export function StepChatPanel({
   step,
   assignment,
-  steps,
   onClose,
   onToggleComplete,
 }: StepChatPanelProps) {
@@ -119,7 +116,7 @@ export function StepChatPanel({
   return (
     <>
       {/* Desktop: side panel */}
-      <div className="fixed inset-y-0 right-0 z-50 hidden w-[440px] border-l bg-background shadow-lg md:flex md:flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 hidden w-110 border-l bg-card shadow-xl md:flex md:flex-col">
         <PanelContent
           step={step}
           messages={messages}
@@ -134,8 +131,8 @@ export function StepChatPanel({
         />
       </div>
 
-      {/* Mobile: full-screen bottom sheet */}
-      <div className="fixed inset-0 z-50 flex flex-col bg-background md:hidden">
+      {/* Mobile: full-screen overlay */}
+      <div className="fixed inset-0 z-50 flex flex-col bg-card md:hidden">
         <PanelContent
           step={step}
           messages={messages}
@@ -181,43 +178,52 @@ function PanelContent({
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex-1 pr-2">
-          <p className="text-sm font-medium">
-            Step {step.step_number}: {step.title}
+      <div className="flex items-center justify-between border-b bg-background/50 px-4 py-3">
+        <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
+          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+            {step.step_number}
+          </span>
+          <p className="truncate text-sm font-medium">
+            {step.title}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <Button
             variant={step.completed ? "secondary" : "default"}
             size="sm"
+            className="h-8 text-xs"
             onClick={onToggleComplete}
           >
             <Check className="mr-1 h-3 w-3" />
-            {step.completed ? "Completed" : "Mark Complete"}
+            {step.completed ? "Done" : "Complete"}
           </Button>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
       {/* Description */}
-      <div className="border-b px-4 py-2">
+      <div className="border-b bg-muted/30 px-4 py-2.5">
         <p className="text-sm text-muted-foreground">{step.description}</p>
       </div>
 
       {/* Messages */}
       <div className="min-h-0 flex-1 overflow-y-auto p-4" ref={scrollRef}>
         {messages.length === 0 && (
-          <div className="flex h-full items-center justify-center py-12">
-            <p className="text-center text-sm text-muted-foreground">
-              Ask a question about this step and the AI will help you with
-              context from your assignment.
-            </p>
+          <div className="flex h-full flex-col items-center justify-center gap-3 py-12">
+            <div className="rounded-full bg-primary/10 p-3">
+              <MessageCircle className="h-6 w-6 text-primary" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-medium">Need help with this step?</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ask a question and get advice tailored to your assignment.
+              </p>
+            </div>
           </div>
         )}
-        <div className="space-y-4">
+        <div className="space-y-3">
           {messages.map((msg, i) => (
             <div
               key={i}
@@ -226,45 +232,47 @@ function PanelContent({
               }`}
             >
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm ${
                   msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
+                    ? "rounded-br-md bg-primary text-primary-foreground"
+                    : "rounded-bl-md bg-muted"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
               </div>
             </div>
           ))}
           {streaming && (
             <div className="flex justify-start">
-              <Badge variant="secondary" className="animate-pulse">
+              <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-muted px-3.5 py-2.5 text-sm text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5 animate-pulse text-primary" />
                 Thinking...
-              </Badge>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      <Separator />
-
       {/* Input */}
-      <div className="flex items-end gap-2 p-4">
-        <Textarea
-          placeholder="Ask about this step..."
-          value={input}
-          onChange={(e) => onInputChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          rows={1}
-          className="min-h-[40px] resize-none"
-        />
-        <Button
-          size="icon"
-          onClick={onSend}
-          disabled={!input.trim() || streaming}
-        >
-          <Send className="h-4 w-4" />
-        </Button>
+      <div className="border-t bg-background/50 p-3">
+        <div className="flex items-end gap-2">
+          <Textarea
+            placeholder="Ask about this step..."
+            value={input}
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={onKeyDown}
+            rows={1}
+            className="min-h-10 resize-none rounded-xl"
+          />
+          <Button
+            size="icon"
+            className="h-10 w-10 shrink-0 rounded-xl"
+            onClick={onSend}
+            disabled={!input.trim() || streaming}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </>
   );

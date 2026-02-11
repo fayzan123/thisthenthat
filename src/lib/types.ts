@@ -3,6 +3,7 @@ export interface Assignment {
   user_id: string;
   title: string;
   original_text: string;
+  completed: boolean;
   created_at: string;
 }
 
