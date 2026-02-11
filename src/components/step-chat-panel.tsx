@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { X, Check, Send } from "lucide-react";
@@ -209,7 +208,7 @@ function PanelContent({
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="flex h-full items-center justify-center py-12">
             <p className="text-center text-sm text-muted-foreground">
@@ -245,7 +244,7 @@ function PanelContent({
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       <Separator />
 

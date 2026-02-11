@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { PDFParse } from "pdf-parse";
 
 const anthropic = new Anthropic();
 
@@ -27,30 +26,42 @@ export async function POST(request: Request) {
       );
     }
 
-    // Extract text from PDF
+    // Send PDF directly to Claude (native PDF support)
     const arrayBuffer = await file.arrayBuffer();
-    const parser = new PDFParse({ data: new Uint8Array(arrayBuffer) });
-    const pdfResult = await parser.getText();
-    const extractedText = pdfResult.text;
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-    if (!extractedText.trim()) {
-      return NextResponse.json(
-        { error: "Could not extract text from PDF" },
-        { status: 400 }
-      );
-    }
-
-    // Generate checklist using Claude
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
       messages: [
         {
           role: "user",
-          content: `You are an expert academic advisor. Analyze the following assignment and create a step-by-step checklist for completing it.
+          content: [
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: base64,
+              },
+            },
+            {
+              type: "text",
+              text: `You are an expert academic advisor. First, determine if this PDF is a valid school or university assignment. Then, if valid, create a step-by-step checklist for completing it.
+
+A valid assignment is a document that asks a student to complete academic work — essays, problem sets, lab reports, research papers, projects, presentations, reading responses, etc. Invalid documents include: receipts, invoices, resumes, random articles, blank pages, memos, personal documents, or anything that is clearly not an assignment given to a student.
 
 Return your response as JSON with this exact structure:
+
+If the PDF is NOT a valid assignment:
 {
+  "valid": false,
+  "reason": "Brief explanation of why this is not a valid assignment"
+}
+
+If the PDF IS a valid assignment:
+{
+  "valid": true,
   "title": "A short descriptive title for the assignment",
   "steps": [
     {
@@ -60,16 +71,15 @@ Return your response as JSON with this exact structure:
   ]
 }
 
-Guidelines:
+Guidelines for steps (only if valid):
 - Create 5-15 ordered, actionable steps
 - Order them logically (research → outline → draft → revise, etc.)
 - Each step should be concrete and specific to this assignment
 - Keep titles short (under 10 words)
 - Keep descriptions to 1-2 sentences max
-- Return ONLY valid JSON, no other text
-
-Assignment text:
-${extractedText}`,
+- Return ONLY valid JSON, no other text`,
+            },
+          ],
         },
       ],
     });
@@ -82,20 +92,33 @@ ${extractedText}`,
       );
     }
 
-    // Parse the JSON response
-    const parsed = JSON.parse(content.text);
+    // Parse the JSON response (strip markdown fences if present)
+    let jsonText = content.text.trim();
+    if (jsonText.startsWith("```")) {
+      jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+    }
+
+    const parsed = JSON.parse(jsonText);
+
+    if (!parsed.valid) {
+      return NextResponse.json(
+        { error: parsed.reason || "This PDF does not appear to be a valid assignment." },
+        { status: 400 }
+      );
+    }
+
     const { title, steps } = parsed as {
       title: string;
       steps: { title: string; description: string }[];
     };
 
-    // Save assignment to database
+    // Save assignment to database (store the raw AI text as original_text)
     const { data: assignment, error: assignmentError } = await supabase
       .from("assignments")
       .insert({
         user_id: user.id,
         title,
-        original_text: extractedText,
+        original_text: content.text,
       })
       .select()
       .single();
