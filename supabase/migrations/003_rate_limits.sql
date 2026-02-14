@@ -8,12 +8,12 @@ create table rate_limits (
 -- Index for fast lookups by key and time window
 create index idx_rate_limits_key_timestamp on rate_limits (key, timestamp desc);
 
--- Auto-cleanup: delete entries older than 15 minutes
--- (longer than any rate limit window we use)
+-- Auto-cleanup: delete entries older than 25 hours
+-- (longer than the 24-hour rate limit window we use)
 create or replace function cleanup_rate_limits()
 returns trigger as $$
 begin
-  delete from rate_limits where timestamp < now() - interval '15 minutes';
+  delete from rate_limits where timestamp < now() - interval '25 hours';
   return new;
 end;
 $$ language plpgsql;

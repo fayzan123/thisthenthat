@@ -17,17 +17,17 @@ export async function POST(request: Request) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // Rate limit: 20 messages per 5 minutes per user
+    // Rate limit: 5 chat messages per day per user
     const { allowed, retryAfterMs } = await rateLimit(
       supabase,
       `chat:${user.id}`,
-      20,
-      5 * 60 * 1000
+      5,
+      24 * 60 * 60 * 1000
     );
     if (!allowed) {
-      const seconds = Math.ceil(retryAfterMs / 1000);
+      const hours = Math.ceil(retryAfterMs / 3600000);
       return new Response(
-        JSON.stringify({ error: `Slow down. Try again in ${seconds}s.` }),
+        JSON.stringify({ error: `Daily limit reached. Try again in ${hours} hour${hours > 1 ? "s" : ""}.` }),
         { status: 429, headers: { "Content-Type": "application/json" } }
       );
     }

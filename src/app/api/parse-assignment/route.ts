@@ -19,18 +19,18 @@ export async function POST(request: Request) {
       });
     }
 
-    // Rate limit: 5 uploads per 10 minutes per user
+    // Rate limit: 1 upload per day per user
     const { allowed, retryAfterMs } = await rateLimit(
       supabase,
       `parse:${user.id}`,
-      5,
-      10 * 60 * 1000
+      1,
+      24 * 60 * 60 * 1000
     );
     if (!allowed) {
-      const minutes = Math.ceil(retryAfterMs / 60000);
+      const hours = Math.ceil(retryAfterMs / 3600000);
       return new Response(
         JSON.stringify({
-          error: `Too many uploads. Try again in ${minutes} minute${minutes > 1 ? "s" : ""}.`,
+          error: `Daily limit reached. Try again in ${hours} hour${hours > 1 ? "s" : ""}.`,
         }),
         { status: 429, headers: { "Content-Type": "application/json" } }
       );
