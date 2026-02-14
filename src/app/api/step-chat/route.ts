@@ -18,7 +18,8 @@ export async function POST(request: Request) {
     }
 
     // Rate limit: 20 messages per 5 minutes per user
-    const { allowed, retryAfterMs } = rateLimit(
+    const { allowed, retryAfterMs } = await rateLimit(
+      supabase,
       `chat:${user.id}`,
       20,
       5 * 60 * 1000

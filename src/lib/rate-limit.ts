@@ -1,27 +1,50 @@
-const requests = new Map<string, number[]>();
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Simple in-memory rate limiter.
- * Returns true if the request is allowed, false if rate limited.
+ * Persistent rate limiter backed by Supabase.
+ * Survives serverless cold starts and redeploys.
  */
-export function rateLimit(
+export async function rateLimit(
+  supabase: SupabaseClient,
   key: string,
   limit: number,
   windowMs: number
-): { allowed: boolean; retryAfterMs: number } {
-  const now = Date.now();
-  const timestamps = requests.get(key) || [];
+): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  const windowStart = new Date(Date.now() - windowMs).toISOString();
 
-  // Remove expired timestamps
-  const valid = timestamps.filter((t) => now - t < windowMs);
+  // Count recent requests within the window
+  const { count, error: countError } = await supabase
+    .from("rate_limits")
+    .select("*", { count: "exact", head: true })
+    .eq("key", key)
+    .gte("timestamp", windowStart);
 
-  if (valid.length >= limit) {
-    const oldestValid = valid[0];
-    const retryAfterMs = windowMs - (now - oldestValid);
-    return { allowed: false, retryAfterMs };
+  if (countError) {
+    // If rate limit check fails, allow the request (fail open)
+    console.error("Rate limit check failed:", countError);
+    return { allowed: true, retryAfterMs: 0 };
   }
 
-  valid.push(now);
-  requests.set(key, valid);
+  if ((count ?? 0) >= limit) {
+    // Find the oldest entry in the window to calculate retry time
+    const { data: oldest } = await supabase
+      .from("rate_limits")
+      .select("timestamp")
+      .eq("key", key)
+      .gte("timestamp", windowStart)
+      .order("timestamp", { ascending: true })
+      .limit(1)
+      .single();
+
+    const retryAfterMs = oldest
+      ? windowMs - (Date.now() - new Date(oldest.timestamp).getTime())
+      : windowMs;
+
+    return { allowed: false, retryAfterMs: Math.max(retryAfterMs, 0) };
+  }
+
+  // Record this request
+  await supabase.from("rate_limits").insert({ key });
+
   return { allowed: true, retryAfterMs: 0 };
 }

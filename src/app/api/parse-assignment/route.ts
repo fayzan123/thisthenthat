@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { rateLimit } from "@/lib/rate-limit";
@@ -14,20 +13,26 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     // Rate limit: 5 uploads per 10 minutes per user
-    const { allowed, retryAfterMs } = rateLimit(
+    const { allowed, retryAfterMs } = await rateLimit(
+      supabase,
       `parse:${user.id}`,
       5,
       10 * 60 * 1000
     );
     if (!allowed) {
       const minutes = Math.ceil(retryAfterMs / 60000);
-      return NextResponse.json(
-        { error: `Too many uploads. Try again in ${minutes} minute${minutes > 1 ? "s" : ""}.` },
-        { status: 429 }
+      return new Response(
+        JSON.stringify({
+          error: `Too many uploads. Try again in ${minutes} minute${minutes > 1 ? "s" : ""}.`,
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -35,17 +40,17 @@ export async function POST(request: Request) {
     const file = formData.get("pdf") as File;
 
     if (!file) {
-      return NextResponse.json(
-        { error: "No PDF file provided" },
-        { status: 400 }
-      );
+      return new Response(JSON.stringify({ error: "No PDF file provided" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    // Send PDF directly to Claude (native PDF support)
+    // Send PDF directly to Claude (native PDF support) with streaming
     const arrayBuffer = await file.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-    const message = await anthropic.messages.create({
+    const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
       messages: [
@@ -74,85 +79,32 @@ Steps should be planning/organizational tasks (e.g. "Review lecture notes on X",
       ],
     });
 
-    const content = message.content[0];
-    if (content.type !== "text") {
-      return NextResponse.json(
-        { error: "Unexpected AI response" },
-        { status: 500 }
-      );
-    }
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        for await (const event of stream) {
+          if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
+            controller.enqueue(encoder.encode(event.delta.text));
+          }
+        }
+        controller.close();
+      },
+    });
 
-    // Parse the JSON response (strip markdown fences if present)
-    let jsonText = content.text.trim();
-    if (jsonText.startsWith("```")) {
-      jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    }
-
-    const parsed = JSON.parse(jsonText);
-
-    if (!parsed.valid) {
-      return NextResponse.json(
-        { error: parsed.reason || "This PDF does not appear to be a valid assignment." },
-        { status: 400 }
-      );
-    }
-
-    const { title, steps } = parsed as {
-      title: string;
-      steps: { title: string; description: string }[];
-    };
-
-    // Save assignment to database (store the raw AI text as original_text)
-    const { data: assignment, error: assignmentError } = await supabase
-      .from("assignments")
-      .insert({
-        user_id: user.id,
-        title,
-        original_text: content.text,
-      })
-      .select()
-      .single();
-
-    if (assignmentError) {
-      return NextResponse.json(
-        { error: "Failed to save assignment" },
-        { status: 500 }
-      );
-    }
-
-    // Save checklist steps
-    const stepsToInsert = steps.map(
-      (step: { title: string; description: string }, index: number) => ({
-        assignment_id: assignment.id,
-        step_number: index + 1,
-        title: step.title,
-        description: step.description,
-        completed: false,
-        chat_history: [],
-      })
-    );
-
-    const { error: stepsError } = await supabase
-      .from("checklist_steps")
-      .insert(stepsToInsert);
-
-    if (stepsError) {
-      return NextResponse.json(
-        { error: "Failed to save checklist steps" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      id: assignment.id,
-      title,
-      steps,
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+      },
     });
   } catch (error) {
     console.error("Parse assignment error:", error);
-    return NextResponse.json(
-      { error: "Failed to process assignment" },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ error: "Failed to process assignment" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }

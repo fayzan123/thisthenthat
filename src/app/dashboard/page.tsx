@@ -75,6 +75,7 @@ export default function DashboardPage() {
     }
 
     try {
+      // Step 1: Stream Claude's response (avoids Vercel 10s timeout)
       const uploadData = new FormData();
       uploadData.append("pdf", file);
 
@@ -86,6 +87,47 @@ export default function DashboardPage() {
       if (!res.ok) {
         const body = await res.json();
         throw new Error(body.error || "Failed to process assignment");
+      }
+
+      // Read the streamed response
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += decoder.decode(value);
+      }
+
+      // Parse the JSON response (strip markdown fences if present)
+      let jsonText = fullText.trim();
+      if (jsonText.startsWith("```")) {
+        jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+      }
+
+      const parsed = JSON.parse(jsonText);
+
+      if (!parsed.valid) {
+        throw new Error(parsed.reason || "This PDF does not appear to be a valid assignment.");
+      }
+
+      // Step 2: Save to database (fast, no AI involved)
+      const saveRes = await fetch("/api/save-assignment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: parsed.title,
+          steps: parsed.steps,
+          originalText: fullText,
+        }),
+      });
+
+      if (!saveRes.ok) {
+        const body = await saveRes.json();
+        throw new Error(body.error || "Failed to save assignment");
       }
 
       setDialogOpen(false);
